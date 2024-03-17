@@ -1,35 +1,41 @@
 import { APIGatewayProxyHandlerV2 } from "aws-lambda";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { DynamoDBDocumentClient, DeleteCommand } from "@aws-sdk/lib-dynamodb";
+import { DynamoDBDocumentClient, QueryCommand } from "@aws-sdk/lib-dynamodb";
 
 const ddbDocClient = createDynamoDBDocumentClient();
 
 export const handler: APIGatewayProxyHandlerV2 = async (event, context) => {
   try {
-    
-    const movieID = event.pathParameters?.movieID;
-    if (!movieID) {
+    // 检查路径参数是否存在
+    const reviewerName = event.pathParameters?.reviewerName;
+    if (!reviewerName) {
       return {
         statusCode: 400,
-        body: JSON.stringify({ message: "Missing movieID parameter" }),
+        body: JSON.stringify({ message: "Missing reviewerName parameter" }),
       };
     }
 
-   
-    const commandOutput = await ddbDocClient.send(
-      new DeleteCommand({
-        TableName: process.env.TABLE_NAME,
-        Key: {
-          movieID: { S: movieID }, 
-        },
-      })
-    );
+    // 构造查询参数
+    const queryParams = {
+      TableName: process.env.TABLE_NAME,
+      KeyConditionExpression: "reviewerName = :reviewerName",
+      ExpressionAttributeValues: {
+        ":reviewerName": reviewerName,
+      },
+    };
+
+    // 查询评论
+    const queryOutput = await ddbDocClient.send(new QueryCommand(queryParams));
+
+    // 提取查询结果中的评论列表
+    const reviews = queryOutput.Items;
 
     return {
-      statusCode: 204, 
+      statusCode: 200,
+      body: JSON.stringify(reviews),
     };
   } catch (error: any) {
-    console.error("Error deleting movie:", error);
+    console.error("Error fetching reviews:", error);
     return {
       statusCode: 500,
       body: JSON.stringify({ message: "Internal server error" }),
