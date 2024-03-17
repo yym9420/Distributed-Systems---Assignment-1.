@@ -3,16 +3,13 @@ import * as cdk from "aws-cdk-lib";
 import * as lambdanode from "aws-cdk-lib/aws-lambda-nodejs";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
-import * as custom from "aws-cdk-lib/custom-resources";
 import { Construct } from "constructs";
-import { generateBatch } from "../shared/util";
-import { movies, movieCasts } from "../seed/movies";
 
 export class RestAPIStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
 
-    // Tables 
+    // DynamoDB Tables
     const moviesTable = new dynamodb.Table(this, "MoviesTable", {
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       partitionKey: { name: "id", type: dynamodb.AttributeType.NUMBER },
@@ -20,177 +17,126 @@ export class RestAPIStack extends cdk.Stack {
       tableName: "Movies",
     });
 
-    const movieCastsTable = new dynamodb.Table(this, "MovieCastTable", {
+    const movieReviewsTable = new dynamodb.Table(this, "MovieReviewsTable", {
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       partitionKey: { name: "movieId", type: dynamodb.AttributeType.NUMBER },
-      sortKey: { name: "actorName", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "reviewId", type: dynamodb.AttributeType.STRING },
       removalPolicy: cdk.RemovalPolicy.DESTROY,
-      tableName: "MovieCast",
+      tableName: "MovieReviews",
     });
 
-    movieCastsTable.addLocalSecondaryIndex({
-      indexName: "roleIx",
-      sortKey: { name: "roleName", type: dynamodb.AttributeType.STRING },
-    });
-
-    // 创建 DynamoDB 表 MovieReviews
-    const movieReviewsTable = new dynamodb.Table(this, 'MovieReviewsTable', {
-      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
-      partitionKey: { name: 'MovieId', type: dynamodb.AttributeType.NUMBER },
-      sortKey: { name: 'ReviewDate', type: dynamodb.AttributeType.STRING },
-      removalPolicy: cdk.RemovalPolicy.DESTROY,
-      tableName: 'MovieReviews',
-    });
-
-    // 添加全局二级索引以根据 ReviewerName 查询评论
-    movieReviewsTable.addGlobalSecondaryIndex({
-      indexName: 'ReviewerIndex',
-      partitionKey: { name: 'ReviewerName', type: dynamodb.AttributeType.STRING },
-      sortKey: { name: 'ReviewDate', type: dynamodb.AttributeType.STRING },
-    });
-
-    // Functions 
-    const getMovieByIdFn = new lambdanode.NodejsFunction(
-      this,
-      "GetMovieByIdFn",
-      {
-        architecture: lambda.Architecture.ARM_64,
-        runtime: lambda.Runtime.NODEJS_18_X,
-        entry: `${__dirname}/../lambdas/getMovieById.ts`,
-        timeout: cdk.Duration.seconds(10),
-        memorySize: 128,
-        environment: {
-          TABLE_NAME: moviesTable.tableName,
-          REGION: 'eu-west-1',
-        },
-      }
-    );
-      
-    const getAllMoviesFn = new lambdanode.NodejsFunction(
-      this,
-      "GetAllMoviesFn",
-      {
-        architecture: lambda.Architecture.ARM_64,
-        runtime: lambda.Runtime.NODEJS_18_X,
-        entry: `${__dirname}/../lambdas/getAllMovies.ts`,
-        timeout: cdk.Duration.seconds(10),
-        memorySize: 128,
-        environment: {
-          TABLE_NAME: moviesTable.tableName,
-          REGION: 'eu-west-1',
-        },
-      }
-    );
-
-    const getMovieReviewsFn = new lambdanode.NodejsFunction(
-      this,
-      "GetMovieReviewsFn",
-      {
-        architecture: lambda.Architecture.ARM_64,
-        runtime: lambda.Runtime.NODEJS_18_X,
-        entry: `${__dirname}/../lambdas/getMovieReviews.ts`,
-        timeout: cdk.Duration.seconds(10),
-        memorySize: 128,
-        environment: {
-          TABLE_NAME: movieReviewsTable.tableName,
-          REGION: 'eu-west-1',
-        },
-      }
-    );
-        
-    new custom.AwsCustomResource(this, "moviesddbInitData", {
-      onCreate: {
-        service: "DynamoDB",
-        action: "batchWriteItem",
-        parameters: {
-          RequestItems: {
-            [moviesTable.tableName]: generateBatch(movies),
-            [movieCastsTable.tableName]: generateBatch(movieCasts),  // Added
-          },
-        },
-        physicalResourceId: custom.PhysicalResourceId.of("moviesddbInitData"),
-      },
-      policy: custom.AwsCustomResourcePolicy.fromSdkCalls({
-        resources: [moviesTable.tableArn, movieCastsTable.tableArn],
-      }),
-    });
-
-    const newMovieFn = new lambdanode.NodejsFunction(this, "AddMovieFn", {
-      architecture: lambda.Architecture.ARM_64,
-      runtime: lambda.Runtime.NODEJS_16_X,
-      entry: `${__dirname}/../lambdas/addMovie.ts`,
-      timeout: cdk.Duration.seconds(10),
-      memorySize: 128,
+    // Lambda Functions
+    const addMovieReviewFn = new lambdanode.NodejsFunction(this, "AddMovieReviewFn", {
+      runtime: lambda.Runtime.NODEJS_14_X,
+      entry: `${__dirname}/../lambdas/addMovieReview.ts`,
+      handler: "handler",
       environment: {
-        TABLE_NAME: moviesTable.tableName,
-        REGION: "eu-west-1",
+        MOVIE_REVIEWS_TABLE_NAME: movieReviewsTable.tableName,
       },
     });
 
-    const getMovieCastMembersFn = new lambdanode.NodejsFunction(
-      this,
-      "GetCastMemberFn",
-      {
-        architecture: lambda.Architecture.ARM_64,
-        runtime: lambda.Runtime.NODEJS_16_X,
-        entry: `${__dirname}/../lambdas/getMovieCastMember.ts`,
-        timeout: cdk.Duration.seconds(10),
-        memorySize: 128,
-        environment: {
-          TABLE_NAME: movieCastsTable.tableName,
-          REGION: "eu-west-1",
-        },
-      }
-    );
+    const getMovieReviewByReviewerFn = new lambdanode.NodejsFunction(this, "GetMovieReviewByReviewerFn", {
+      runtime: lambda.Runtime.NODEJS_14_X,
+      entry: `${__dirname}/../lambdas/getMovieReviewByReviewer.ts`,
+      handler: "handler",
+      environment: {
+        MOVIE_REVIEWS_TABLE_NAME: movieReviewsTable.tableName,
+      },
+    });
 
-    // Permissions 
-    moviesTable.grantReadData(getMovieByIdFn);
-    moviesTable.grantReadData(getAllMoviesFn);
-    moviesTable.grantReadWriteData(newMovieFn);
-    movieCastsTable.grantReadData(getMovieCastMembersFn);
+    const getMovieReviewsFn = new lambdanode.NodejsFunction(this, "GetMovieReviewsFn", {
+      runtime: lambda.Runtime.NODEJS_14_X,
+      entry: `${__dirname}/../lambdas/getMovieReviews.ts`,
+      handler: "handler",
+      environment: {
+        MOVIE_REVIEWS_TABLE_NAME: movieReviewsTable.tableName,
+      },
+    });
+
+    const getMovieReviewsByYearFn = new lambdanode.NodejsFunction(this, "GetMovieReviewsByYearFn", {
+      runtime: lambda.Runtime.NODEJS_14_X,
+      entry: `${__dirname}/../lambdas/getMovieReviewsByYear.ts`,
+      handler: "handler",
+      environment: {
+        MOVIE_REVIEWS_TABLE_NAME: movieReviewsTable.tableName,
+      },
+    });
+
+    const getMovieReviewsWithMinRatingFn = new lambdanode.NodejsFunction(this, "GetMovieReviewsWithMinRatingFn", {
+      runtime: lambda.Runtime.NODEJS_14_X,
+      entry: `${__dirname}/../lambdas/getMovieReviewsWithMinRating.ts`,
+      handler: "handler",
+      environment: {
+        MOVIE_REVIEWS_TABLE_NAME: movieReviewsTable.tableName,
+      },
+    });
+
+    const getReviewsByReviewerFn = new lambdanode.NodejsFunction(this, "GetReviewsByReviewerFn", {
+      runtime: lambda.Runtime.NODEJS_14_X,
+      entry: `${__dirname}/../lambdas/getReviewsByReviewer.ts`,
+      handler: "handler",
+      environment: {
+        MOVIE_REVIEWS_TABLE_NAME: movieReviewsTable.tableName,
+      },
+    });
+
+    const getReviewTranslationFn = new lambdanode.NodejsFunction(this, "GetReviewTranslationFn", {
+      runtime: lambda.Runtime.NODEJS_14_X,
+      entry: `${__dirname}/../lambdas/getReviewTranslation.ts`,
+      handler: "handler",
+    });
+
+    const updateMovieReviewFn = new lambdanode.NodejsFunction(this, "UpdateMovieReviewFn", {
+      runtime: lambda.Runtime.NODEJS_14_X,
+      entry: `${__dirname}/../lambdas/updateMovieReview.ts`,
+      handler: "handler",
+      environment: {
+        MOVIE_REVIEWS_TABLE_NAME: movieReviewsTable.tableName,
+      },
+    });
+
+    // Grant permissions to Lambda functions to access DynamoDB tables
+    moviesTable.grantReadWriteData(addMovieReviewFn);
+    movieReviewsTable.grantReadWriteData(getMovieReviewByReviewerFn);
     movieReviewsTable.grantReadData(getMovieReviewsFn);
+    movieReviewsTable.grantReadData(getMovieReviewsByYearFn);
+    movieReviewsTable.grantReadData(getMovieReviewsWithMinRatingFn);
+    movieReviewsTable.grantReadData(getReviewsByReviewerFn);
+    movieReviewsTable.grantReadData(getReviewTranslationFn);
+    movieReviewsTable.grantReadWriteData(updateMovieReviewFn);
 
-    // REST API 
+    // API Gateway
     const api = new apig.RestApi(this, "RestAPI", {
-      description: "demo api",
+      description: "Demo API",
       deployOptions: {
         stageName: "dev",
       },
-      defaultCorsPreflightOptions: {
-        allowHeaders: ["Content-Type", "X-Amz-Date"],
-        allowMethods: ["OPTIONS", "GET", "POST", "PUT", "PATCH", "DELETE"],
-        allowCredentials: true,
-        allowOrigins: ["*"],
-      },
     });
 
-    const moviesEndpoint = api.root.addResource("movies");
-    moviesEndpoint.addMethod(
-      "GET",
-      new apig.LambdaIntegration(getAllMoviesFn, { proxy: true })
-    );
+    // Define API endpoints
+    const moviesReviewsResource = api.root.addResource("movies").addResource("reviews");
 
-    const movieEndpoint = moviesEndpoint.addResource("{movieId}");
-    movieEndpoint.addMethod(
-      "GET",
-      new apig.LambdaIntegration(getMovieByIdFn, { proxy: true })
-    );
-    moviesEndpoint.addMethod(
-      "POST",
-      new apig.LambdaIntegration(newMovieFn, { proxy: true })
-    );
+    moviesReviewsResource.addMethod("POST", new apig.LambdaIntegration(addMovieReviewFn));
+    moviesReviewsResource.addMethod("GET", new apig.LambdaIntegration(getMovieReviewsFn));
 
-    const movieCastEndpoint = moviesEndpoint.addResource("cast");
-    movieCastEndpoint.addMethod(
-      "GET",
-      new apig.LambdaIntegration(getMovieCastMembersFn, { proxy: true })
-    );
+    api.root.addResource("reviews").addResource("{reviewerName}")
+      .addMethod("GET", new apig.LambdaIntegration(getReviewsByReviewerFn));
 
-    // 添加获取电影评论的端点
-    const movieReviewsEndpoint = api.root.addResource("movie-reviews");
-    movieReviewsEndpoint.addMethod(
-      "GET",
-      new apig.LambdaIntegration(getMovieReviewsFn, { proxy: true })
-    );
+    api.root.addResource("reviews").addResource("{reviewerName}")
+      .addResource("{movieId}")
+      .addResource("translation")
+      .addMethod("GET", new apig.LambdaIntegration(getReviewTranslationFn));
+
+    api.root.addResource("movies").addResource("{movieId}")
+      .addResource("reviews").addResource("{reviewerName}")
+      .addMethod("PUT", new apig.LambdaIntegration(updateMovieReviewFn));
+
+    api.root.addResource("movies").addResource("{movieId}")
+      .addResource("reviews").addResource("{year}")
+      .addMethod("GET", new apig.LambdaIntegration(getMovieReviewsByYearFn));
+
+    api.root.addResource("movies").addResource("{movieId}")
+      .addResource("reviews").addResource("minRating").addResource("{n}")
+      .addMethod("GET", new apig.LambdaIntegration(getMovieReviewsWithMinRatingFn));
   }
 }
