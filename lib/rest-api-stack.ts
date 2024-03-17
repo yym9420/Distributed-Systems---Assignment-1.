@@ -39,9 +39,6 @@ export class RestAPIStack extends cdk.Stack {
       runtime: lambda.Runtime.NODEJS_14_X,
       entry: `${__dirname}/../lambdas/getMovieReviewByReviewer.ts`,
       handler: "handler",
-      environment: {
-        MOVIE_REVIEWS_TABLE_NAME: movieReviewsTable.tableName,
-      },
     });
 
     const getMovieReviewsFn = new lambdanode.NodejsFunction(this, "GetMovieReviewsFn", {
@@ -95,6 +92,7 @@ export class RestAPIStack extends cdk.Stack {
       },
     });
 
+
     // Grant permissions to Lambda functions to access DynamoDB tables
     moviesTable.grantReadWriteData(addMovieReviewFn);
     movieReviewsTable.grantReadWriteData(getMovieReviewByReviewerFn);
@@ -120,7 +118,14 @@ export class RestAPIStack extends cdk.Stack {
     moviesReviewsResource.addMethod("GET", new apig.LambdaIntegration(getMovieReviewsFn));
 
     api.root.addResource("reviews").addResource("{reviewerName}")
-      .addMethod("GET", new apig.LambdaIntegration(getReviewsByReviewerFn));
+      .addMethod("GET", new apig.LambdaIntegration(getMovieReviewByReviewerFn, {
+        requestTemplates: {
+          "application/json": `{
+            "reviewerName": "$input.params('reviewerName')",
+            "queryStringParameters": $input.json('$querystring')
+          }`
+        }
+      }));
 
     api.root.addResource("reviews").addResource("{reviewerName}")
       .addResource("{movieId}")

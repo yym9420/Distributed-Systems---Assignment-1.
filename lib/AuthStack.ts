@@ -1,66 +1,91 @@
 import * as apig from "aws-cdk-lib/aws-apigateway";
 import * as cdk from "aws-cdk-lib";
 import * as lambdanode from "aws-cdk-lib/aws-lambda-nodejs";
+import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
-import * as lambda from 'aws-cdk-lib/aws-lambda';
 import { Construct } from "constructs";
+import * as cognito from 'aws-cdk-lib/aws-cognito';
 
-export class AuthStack extends cdk.Stack {
+export class RestAPIStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
 
-    // DynamoDB Table for storing user data
-    const usersTable = new dynamodb.Table(this, "UsersTable", {
+    // DynamoDB Tables
+    const moviesTable = new dynamodb.Table(this, "MoviesTable", {
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
-      partitionKey: { name: "userId", type: dynamodb.AttributeType.STRING },
-      removalPolicy: cdk.RemovalPolicy.DESTROY, // WARNING: This will delete all data when stack is deleted
-      tableName: "Users",
+      partitionKey: { name: "id", type: dynamodb.AttributeType.NUMBER },
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      tableName: "Movies",
     });
 
-    // Lambda function for user registration
-const registerUserFn = new lambdanode.NodejsFunction(this, "RegisterUserFn", {
-    runtime: lambda.Runtime.NODEJS_14_X,
-    entry: `${__dirname}/../lambdas/registerUser.ts`,
-    handler: "handler",
-    environment: {
-      USERS_TABLE_NAME: usersTable.tableName,
-    },
-  });
-  
-  // Lambda function for user login
-  const loginUserFn = new lambdanode.NodejsFunction(this, "LoginUserFn", {
-    runtime: lambda.Runtime.NODEJS_14_X,
-    entry: `${__dirname}/../lambdas/loginUser.ts`,
-    handler: "handler",
-    environment: {
-      USERS_TABLE_NAME: usersTable.tableName,
-    },
-  });
-  
-  // Lambda function for user logout (optional)
-  const logoutUserFn = new lambdanode.NodejsFunction(this, "LogoutUserFn", {
-    runtime: lambda.Runtime.NODEJS_14_X,
-    entry: `${__dirname}/../lambdas/logoutUser.ts`,
-    handler: "handler",
-  });
+    const movieReviewsTable = new dynamodb.Table(this, "MovieReviewsTable", {
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      partitionKey: { name: "movieId", type: dynamodb.AttributeType.NUMBER },
+      sortKey: { name: "reviewId", type: dynamodb.AttributeType.STRING },
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      tableName: "MovieReviews",
+    });
 
-    // Grant permissions to Lambda functions to access DynamoDB table
-    usersTable.grantReadWriteData(registerUserFn);
-    usersTable.grantReadData(loginUserFn);
+    // Lambda Functions
+    const addMovieReviewFn = new lambdanode.NodejsFunction(this, "AddMovieReviewFn", {
+      runtime: lambda.Runtime.NODEJS_14_X,
+      entry: `${__dirname}/../lambdas/addMovieReview.ts`,
+      handler: "handler",
+      environment: {
+        MOVIE_REVIEWS_TABLE_NAME: movieReviewsTable.tableName,
+      },
+    });
+
+    const updateMovieReviewFn = new lambdanode.NodejsFunction(this, "UpdateMovieReviewFn", {
+      runtime: lambda.Runtime.NODEJS_14_X,
+      entry: `${__dirname}/../lambdas/updateMovieReview.ts`,
+      handler: "handler",
+      environment: {
+        MOVIE_REVIEWS_TABLE_NAME: movieReviewsTable.tableName,
+      },
+    });
+
+    // Grant permissions to Lambda functions to access DynamoDB tables
+    moviesTable.grantReadWriteData(addMovieReviewFn);
+    movieReviewsTable.grantReadWriteData(updateMovieReviewFn);
 
     // API Gateway
-    const api = new apig.RestApi(this, "AuthAPI", {
-      description: "Auth API for user authentication",
+    const api = new apig.RestApi(this, "RestAPI", {
+      description: "Demo API",
       deployOptions: {
         stageName: "dev",
       },
     });
 
-    // Define API endpoints
-    const authResource = api.root.addResource("auth");
-    authResource.addMethod("POST", new apig.LambdaIntegration(registerUserFn));
+    // Cognito User Pool
+    const userPool = new cognito.UserPool(this, 'UserPool', {
+      selfSignUpEnabled: true,
+      autoVerify: { email: true },
+      signInAliases: { email: true }
+    });
 
-    authResource.addResource("login").addMethod("POST", new apig.LambdaIntegration(loginUserFn));
-    authResource.addResource("logout").addMethod("POST", new apig.LambdaIntegration(logoutUserFn));
+    // API Gateway Authorizer using Cognito User Pool
+    const authorizer = new apig.CfnAuthorizer(this, 'CognitoAuthorizer', {
+      restApiId: api.restApiId,
+      name: 'CognitoAuthorizer',
+      type: apig.AuthorizationType.COGNITO,
+      identitySource: 'method.request.header.Authorization',
+      providerArns: [userPool.userPoolArn]
+    });
+
+    // Define API endpoints
+    const moviesReviewsResource = api.root.addResource("movies").addResource("reviews");
+
+    // POST endpoint with authorization
+    moviesReviewsResource.addMethod("POST", new apig.LambdaIntegration(addMovieReviewFn), {
+      authorizer: { authorizerId: authorizer.ref }
+    });
+
+    // PUT endpoint with authorization
+    api.root.addResource("movies").addResource("{movieId}")
+      .addResource("reviews").addResource("{reviewerName}")
+      .addMethod("PUT", new apig.LambdaIntegration(updateMovieReviewFn), {
+        authorizer: { authorizerId: authorizer.ref }
+      });
   }
 }
