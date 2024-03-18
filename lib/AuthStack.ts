@@ -3,8 +3,8 @@ import * as cdk from "aws-cdk-lib";
 import * as lambdanode from "aws-cdk-lib/aws-lambda-nodejs";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
-import { Construct } from "constructs";
 import * as cognito from 'aws-cdk-lib/aws-cognito';
+import { Construct } from "constructs";
 
 export class RestAPIStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
@@ -28,7 +28,7 @@ export class RestAPIStack extends cdk.Stack {
 
     // Lambda Functions
     const addMovieReviewFn = new lambdanode.NodejsFunction(this, "AddMovieReviewFn", {
-      runtime: lambda.Runtime.NODEJS_14_X,
+      runtime: lambda.Runtime.NODEJS_16_X,
       entry: `${__dirname}/../lambdas/addMovieReview.ts`,
       handler: "handler",
       environment: {
@@ -37,7 +37,7 @@ export class RestAPIStack extends cdk.Stack {
     });
 
     const updateMovieReviewFn = new lambdanode.NodejsFunction(this, "UpdateMovieReviewFn", {
-      runtime: lambda.Runtime.NODEJS_14_X,
+      runtime: lambda.Runtime.NODEJS_16_X,
       entry: `${__dirname}/../lambdas/updateMovieReview.ts`,
       handler: "handler",
       environment: {
@@ -76,16 +76,21 @@ export class RestAPIStack extends cdk.Stack {
     // Define API endpoints
     const moviesReviewsResource = api.root.addResource("movies").addResource("reviews");
 
-    // POST endpoint with authorization
-    moviesReviewsResource.addMethod("POST", new apig.LambdaIntegration(addMovieReviewFn), {
-      authorizer: { authorizerId: authorizer.ref }
-    });
-
-    // PUT endpoint with authorization
-    api.root.addResource("movies").addResource("{movieId}")
-      .addResource("reviews").addResource("{reviewerName}")
-      .addMethod("PUT", new apig.LambdaIntegration(updateMovieReviewFn), {
-        authorizer: { authorizerId: authorizer.ref }
-      });
+   // Cognito User Pool Authorizer
+const cognitoAuthorizer = new apig.CognitoUserPoolsAuthorizer(this, 'CognitoAuthorizer', {
+    cognitoUserPools: [userPool]
+  });
+  
+  // POST endpoint with authorization
+  moviesReviewsResource.addMethod("POST", new apig.LambdaIntegration(addMovieReviewFn), {
+    authorizer: cognitoAuthorizer
+  });
+  
+  // PUT endpoint with authorization
+  api.root.addResource("movies").addResource("{movieId}")
+    .addResource("reviews").addResource("{reviewerName}")
+    .addMethod("PUT", new apig.LambdaIntegration(updateMovieReviewFn), {
+      authorizer: cognitoAuthorizer
+  });
   }
 }

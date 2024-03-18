@@ -27,7 +27,7 @@ export class RestAPIStack extends cdk.Stack {
 
     // Lambda Functions
     const addMovieReviewFn = new lambdanode.NodejsFunction(this, "AddMovieReviewFn", {
-      runtime: lambda.Runtime.NODEJS_14_X,
+      runtime: lambda.Runtime.NODEJS_16_X, // 将此行更改为正确的运行时版本
       entry: `${__dirname}/../lambdas/addMovieReview.ts`,
       handler: "handler",
       environment: {
@@ -36,13 +36,13 @@ export class RestAPIStack extends cdk.Stack {
     });
 
     const getMovieReviewByReviewerFn = new lambdanode.NodejsFunction(this, "GetMovieReviewByReviewerFn", {
-      runtime: lambda.Runtime.NODEJS_14_X,
+      runtime: lambda.Runtime.NODEJS_16_X,
       entry: `${__dirname}/../lambdas/getMovieReviewByReviewer.ts`,
       handler: "handler",
     });
 
     const getMovieReviewsFn = new lambdanode.NodejsFunction(this, "GetMovieReviewsFn", {
-      runtime: lambda.Runtime.NODEJS_14_X,
+      runtime: lambda.Runtime.NODEJS_16_X,
       entry: `${__dirname}/../lambdas/getMovieReviews.ts`,
       handler: "handler",
       environment: {
@@ -51,7 +51,7 @@ export class RestAPIStack extends cdk.Stack {
     });
 
     const getMovieReviewsByYearFn = new lambdanode.NodejsFunction(this, "GetMovieReviewsByYearFn", {
-      runtime: lambda.Runtime.NODEJS_14_X,
+      runtime: lambda.Runtime.NODEJS_16_X, // 将此行更改为正确的运行时版本
       entry: `${__dirname}/../lambdas/getMovieReviewsByYear.ts`,
       handler: "handler",
       environment: {
@@ -60,7 +60,7 @@ export class RestAPIStack extends cdk.Stack {
     });
 
     const getMovieReviewsWithMinRatingFn = new lambdanode.NodejsFunction(this, "GetMovieReviewsWithMinRatingFn", {
-      runtime: lambda.Runtime.NODEJS_14_X,
+      runtime: lambda.Runtime.NODEJS_16_X, // 将此行更改为正确的运行时版本
       entry: `${__dirname}/../lambdas/getMovieReviewsWithMinRating.ts`,
       handler: "handler",
       environment: {
@@ -69,7 +69,7 @@ export class RestAPIStack extends cdk.Stack {
     });
 
     const getReviewsByReviewerFn = new lambdanode.NodejsFunction(this, "GetReviewsByReviewerFn", {
-      runtime: lambda.Runtime.NODEJS_14_X,
+      runtime: lambda.Runtime.NODEJS_16_X, // 更改此行以使用新的运行时版本
       entry: `${__dirname}/../lambdas/getReviewsByReviewer.ts`,
       handler: "handler",
       environment: {
@@ -78,13 +78,13 @@ export class RestAPIStack extends cdk.Stack {
     });
 
     const getReviewTranslationFn = new lambdanode.NodejsFunction(this, "GetReviewTranslationFn", {
-      runtime: lambda.Runtime.NODEJS_14_X,
+      runtime: lambda.Runtime.NODEJS_16_X,
       entry: `${__dirname}/../lambdas/getReviewTranslation.ts`,
       handler: "handler",
     });
 
     const updateMovieReviewFn = new lambdanode.NodejsFunction(this, "UpdateMovieReviewFn", {
-      runtime: lambda.Runtime.NODEJS_14_X,
+      runtime: lambda.Runtime.NODEJS_16_X,
       entry: `${__dirname}/../lambdas/updateMovieReview.ts`,
       handler: "handler",
       environment: {
@@ -114,34 +114,37 @@ export class RestAPIStack extends cdk.Stack {
     // Define API endpoints
     const moviesReviewsResource = api.root.addResource("movies").addResource("reviews");
 
-    moviesReviewsResource.addMethod("POST", new apig.LambdaIntegration(addMovieReviewFn));
-    moviesReviewsResource.addMethod("GET", new apig.LambdaIntegration(getMovieReviewsFn));
+moviesReviewsResource.addMethod("POST", new apig.LambdaIntegration(addMovieReviewFn));
+moviesReviewsResource.addMethod("GET", new apig.LambdaIntegration(getMovieReviewsFn));
 
-    api.root.addResource("reviews").addResource("{reviewerName}")
-      .addMethod("GET", new apig.LambdaIntegration(getMovieReviewByReviewerFn, {
-        requestTemplates: {
-          "application/json": `{
-            "reviewerName": "$input.params('reviewerName')",
-            "queryStringParameters": $input.json('$querystring')
-          }`
-        }
-      }));
+api.root.addResource("reviewsByReviewer").addResource("{reviewerName}")
+  .addMethod("GET", new apig.LambdaIntegration(getMovieReviewByReviewerFn, {
+    requestTemplates: {
+      "application/json": `{
+        "reviewerName": "$input.params('reviewerName')",
+        "queryStringParameters": $input.json('$querystring')
+      }`
+    }
+  }));
 
-    api.root.addResource("reviews").addResource("{reviewerName}")
-      .addResource("{movieId}")
-      .addResource("translation")
-      .addMethod("GET", new apig.LambdaIntegration(getReviewTranslationFn));
+api.root.addResource("reviews").addResource("{reviewerName}")
+  .addResource("{movieId}")
+  .addResource("translation")
+  .addMethod("GET", new apig.LambdaIntegration(getReviewTranslationFn));
 
-    api.root.addResource("movies").addResource("{movieId}")
-      .addResource("reviews").addResource("{reviewerName}")
-      .addMethod("PUT", new apig.LambdaIntegration(updateMovieReviewFn));
+// 第一个资源路径为 moviesById/{movieId}/reviews/{reviewerName}
+api.root.addResource("moviesById").addResource("{movieId}")
+  .addResource("reviewsByReviewer").addResource("{reviewerName}")
+  .addMethod("PUT", new apig.LambdaIntegration(updateMovieReviewFn));
 
-    api.root.addResource("movies").addResource("{movieId}")
-      .addResource("reviews").addResource("{year}")
-      .addMethod("GET", new apig.LambdaIntegration(getMovieReviewsByYearFn));
+// 第二个资源路径为 moviesByYear/{movieId}/reviews/{year}
+api.root.addResource("moviesByYear").addResource("{movieId}")
+  .addResource("reviewsByYear").addResource("{year}")
+  .addMethod("GET", new apig.LambdaIntegration(getMovieReviewsByYearFn));
 
-    api.root.addResource("movies").addResource("{movieId}")
-      .addResource("reviews").addResource("minRating").addResource("{n}")
-      .addMethod("GET", new apig.LambdaIntegration(getMovieReviewsWithMinRatingFn));
-  }
+// 第三个资源路径为 moviesMinRating/{movieId}/reviews/minRating/{n}
+api.root.addResource("moviesMinRating").addResource("{movieId}")
+  .addResource("reviewsMinRating").addResource("minRating").addResource("{n}")
+  .addMethod("GET", new apig.LambdaIntegration(getMovieReviewsWithMinRatingFn));
+}
 }
